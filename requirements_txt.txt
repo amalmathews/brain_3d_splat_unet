@@ -1,0 +1,36 @@
+# Core ML libraries
+torch>=2.0.0
+torchvision>=0.15.0
+pytorch-lightning>=2.0.0
+
+# Medical imaging
+nibabel>=4.0.0
+SimpleITK>=2.2.0
+monai>=1.2.0
+
+# Scientific computing
+numpy>=1.21.0
+scipy>=1.9.0
+scikit-image>=0.19.0
+scikit-learn>=1.1.0
+
+# Visualization
+matplotlib>=3.5.0
+plotly>=5.0.0
+
+# Experiment tracking
+wandb>=0.15.0
+
+# Configuration management
+hydra-core>=1.3.0
+omegaconf>=2.3.0
+
+# 3D Gaussian Splatting (we'll add this later)
+# diff-gaussian-rasterization
+# simple-knn
+
+# Development
+jupyter
+ipykernel
+black
+pytest
