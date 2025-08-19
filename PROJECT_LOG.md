@@ -32,3 +32,4 @@ Target: European research labs and medical AI companies (Switzerland/Netherlands
 3. **Gaussian Splatting**: 3D surface reconstruction and refinement
 4. **Performance**: Compare with nnUNet baseline
 5. **Web Interface**: Interactive visualization
+- ✅ UNet training pipeline tested and working (loss: 1.14→1.11)
