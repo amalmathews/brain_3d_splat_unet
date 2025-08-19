@@ -33,3 +33,7 @@ Target: European research labs and medical AI companies (Switzerland/Netherlands
 4. **Performance**: Compare with nnUNet baseline
 5. **Web Interface**: Interactive visualization
 - ✅ UNet training pipeline tested and working (loss: 1.14→1.11)
+- ✅ Uncertainty UNet implemented with Monte Carlo dropout
+- ✅ Uncertainty training script with custom loss function
+- ✅ GPU training pipeline working
+- 🔄 Next: Point cloud extraction from uncertainty maps
