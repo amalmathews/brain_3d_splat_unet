@@ -1,185 +1,195 @@
+# models/uncertainty_unet.py
 """
-UNet with Monte Carlo Dropout for uncertainty quantification
+Memory-Efficient 3D UNet with Monte Carlo Dropout for Epistemic Uncertainty
 """
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
+
+Norm3d = nn.InstanceNorm3d
 
 class UncertaintyConvBlock3D(nn.Module):
-    """3D Convolution block with dropout for uncertainty"""
-    
     def __init__(self, in_channels, out_channels, dropout_rate=0.3):
         super().__init__()
-        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm3d(out_channels)
-        self.dropout1 = nn.Dropout3d(dropout_rate)
-        
-        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm3d(out_channels)
-        self.dropout2 = nn.Dropout3d(dropout_rate)
-        
+        self.conv1 = nn.Conv3d(in_channels, out_channels, 3, padding=1, bias=False)
+        self.norm1 = Norm3d(out_channels)
+        self.drop1 = nn.Dropout3d(dropout_rate)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, 3, padding=1, bias=False)
+        self.norm2 = Norm3d(out_channels)
+        self.drop2 = nn.Dropout3d(dropout_rate)
         self.relu = nn.ReLU(inplace=True)
-    
+
     def forward(self, x):
-        x = self.relu(self.bn1(self.conv1(x)))
-        x = self.dropout1(x)
-        x = self.relu(self.bn2(self.conv2(x)))
-        x = self.dropout2(x)
+        x = self.relu(self.norm1(self.conv1(x)))
+        x = self.drop1(x)
+        x = self.relu(self.norm2(self.conv2(x)))
+        x = self.drop2(x)
         return x
 
 class UncertaintyUNet3D(nn.Module):
-    """3D UNet with Monte Carlo Dropout for uncertainty estimation"""
-    
-    def __init__(self, in_channels=4, n_classes=4, base_channels=32, dropout_rate=0.3):
+    def __init__(self, in_channels=4, n_classes=4, base_channels=16, dropout_rate=0.3, use_checkpointing=True):
         super().__init__()
+        self.use_checkpointing = use_checkpointing
         
-        self.dropout_rate = dropout_rate
-        
-        # Encoder with dropout
+        # Encoder (smaller base channels to reduce memory)
         self.enc1 = UncertaintyConvBlock3D(in_channels, base_channels, dropout_rate)
-        self.enc2 = UncertaintyConvBlock3D(base_channels, base_channels * 2, dropout_rate)
-        self.enc3 = UncertaintyConvBlock3D(base_channels * 2, base_channels * 4, dropout_rate)
-        self.enc4 = UncertaintyConvBlock3D(base_channels * 4, base_channels * 8, dropout_rate)
-        
-        # Bottleneck with dropout
-        self.bottleneck = UncertaintyConvBlock3D(base_channels * 8, base_channels * 16, dropout_rate)
-        
-        # Decoder with dropout
-        self.upconv4 = nn.ConvTranspose3d(base_channels * 16, base_channels * 8, 
-                                         kernel_size=2, stride=2)
-        self.dec4 = UncertaintyConvBlock3D(base_channels * 16, base_channels * 8, dropout_rate)
-        
-        self.upconv3 = nn.ConvTranspose3d(base_channels * 8, base_channels * 4, 
-                                         kernel_size=2, stride=2)
-        self.dec3 = UncertaintyConvBlock3D(base_channels * 8, base_channels * 4, dropout_rate)
-        
-        self.upconv2 = nn.ConvTranspose3d(base_channels * 4, base_channels * 2, 
-                                         kernel_size=2, stride=2)
-        self.dec2 = UncertaintyConvBlock3D(base_channels * 4, base_channels * 2, dropout_rate)
-        
-        self.upconv1 = nn.ConvTranspose3d(base_channels * 2, base_channels, 
-                                         kernel_size=2, stride=2)
-        self.dec1 = UncertaintyConvBlock3D(base_channels * 2, base_channels, dropout_rate)
-        
-        # Final classification layer
-        self.final_conv = nn.Conv3d(base_channels, n_classes, kernel_size=1)
-        
-        # Pooling
-        self.pool = nn.MaxPool3d(kernel_size=2, stride=2)
-    
-    def forward(self, x):
-        """Standard forward pass"""
-        # Encoder path
-        enc1 = self.enc1(x)
-        x = self.pool(enc1)
-        
-        enc2 = self.enc2(x)
-        x = self.pool(enc2)
-        
-        enc3 = self.enc3(x)
-        x = self.pool(enc3)
-        
-        enc4 = self.enc4(x)
-        x = self.pool(enc4)
+        self.enc2 = UncertaintyConvBlock3D(base_channels, base_channels*2, dropout_rate)
+        self.enc3 = UncertaintyConvBlock3D(base_channels*2, base_channels*4, dropout_rate)
+        self.enc4 = UncertaintyConvBlock3D(base_channels*4, base_channels*8, dropout_rate)
         
         # Bottleneck
-        x = self.bottleneck(x)
+        self.bottleneck = UncertaintyConvBlock3D(base_channels*8, base_channels*16, dropout_rate)
+
+        # Decoder
+        self.upconv4 = nn.ConvTranspose3d(base_channels*16, base_channels*8, 2, 2, bias=False)
+        self.dec4 = UncertaintyConvBlock3D(base_channels*16, base_channels*8, dropout_rate)
         
-        # Decoder path
-        x = self.upconv4(x)
-        x = torch.cat([x, enc4], dim=1)
-        x = self.dec4(x)
+        self.upconv3 = nn.ConvTranspose3d(base_channels*8, base_channels*4, 2, 2, bias=False)
+        self.dec3 = UncertaintyConvBlock3D(base_channels*8, base_channels*4, dropout_rate)
         
-        x = self.upconv3(x)
-        x = torch.cat([x, enc3], dim=1)
-        x = self.dec3(x)
+        self.upconv2 = nn.ConvTranspose3d(base_channels*4, base_channels*2, 2, 2, bias=False)
+        self.dec2 = UncertaintyConvBlock3D(base_channels*4, base_channels*2, dropout_rate)
         
-        x = self.upconv2(x)
-        x = torch.cat([x, enc2], dim=1)
-        x = self.dec2(x)
+        self.upconv1 = nn.ConvTranspose3d(base_channels*2, base_channels, 2, 2, bias=False)
+        self.dec1 = UncertaintyConvBlock3D(base_channels*2, base_channels, dropout_rate)
         
-        x = self.upconv1(x)
-        x = torch.cat([x, enc1], dim=1)
-        x = self.dec1(x)
+        self.final_conv = nn.Conv3d(base_channels, n_classes, 1, bias=True)
+        self.pool = nn.MaxPool3d(2, 2)
+
+    def _encoder_block(self, x, encoder, pool=True):
+        """Wrapper for gradient checkpointing"""
+        if self.use_checkpointing and self.training:
+            x = checkpoint(encoder, x, use_reentrant=False)
+        else:
+            x = encoder(x)
         
-        # Final classification
-        x = self.final_conv(x)
-        
+        if pool:
+            return x, self.pool(x)
         return x
-    
-    def monte_carlo_forward(self, x, n_samples=20):
-        """
-        Monte Carlo sampling for uncertainty estimation
-        """
-        # Enable dropout during inference
-        self.train()
+
+    def _decoder_block(self, x, skip, upconv, decoder):
+        """Wrapper for gradient checkpointing"""
+        x = upconv(x)
+        x = F.interpolate(x, size=skip.shape[2:], mode='trilinear', align_corners=False)
+        x = torch.cat([x, skip], dim=1)
         
-        predictions = []
+        if self.use_checkpointing and self.training:
+            x = checkpoint(decoder, x, use_reentrant=False)
+        else:
+            x = decoder(x)
+        return x
+
+    def forward(self, x):
+        # Encoder path with skip connections
+        e1, x = self._encoder_block(x, self.enc1)
+        e2, x = self._encoder_block(x, self.enc2)
+        e3, x = self._encoder_block(x, self.enc3)
+        e4, x = self._encoder_block(x, self.enc4)
         
-        with torch.no_grad():
-            for _ in range(n_samples):
-                pred = self.forward(x)
-                predictions.append(pred)
+        # Bottleneck
+        x = self._encoder_block(x, self.bottleneck, pool=False)
+
+        # Decoder path
+        x = self._decoder_block(x, e4, self.upconv4, self.dec4)
+        x = self._decoder_block(x, e3, self.upconv3, self.dec3)
+        x = self._decoder_block(x, e2, self.upconv2, self.dec2)
+        x = self._decoder_block(x, e1, self.upconv1, self.dec1)
+
+        return self.final_conv(x)
+
+    @torch.no_grad()
+    def monte_carlo_forward(self, x, n_samples=10):
+        """Memory-efficient Monte Carlo forward pass"""
+        self.eval()
+        self.apply(self._enable_dropout_only)
         
-        # Stack predictions: (n_samples, batch, classes, H, W, D)
-        predictions = torch.stack(predictions, dim=0)
+        # Store predictions on CPU to save GPU memory
+        cpu_preds = []
         
-        # Calculate statistics
-        mean_prediction = predictions.mean(dim=0)
-        variance = predictions.var(dim=0)
+        for i in range(n_samples):
+            with torch.cuda.amp.autocast():
+                logits = self.forward(x)
+                prob = F.softmax(logits, dim=1)
+            
+            cpu_preds.append(prob.cpu())
+            
+            # Clear GPU memory periodically
+            if i % 3 == 0:
+                torch.cuda.empty_cache()
         
-        # Calculate predictive entropy (uncertainty)
-        probs = F.softmax(predictions, dim=2)
-        mean_probs = probs.mean(dim=0)
-        entropy = -torch.sum(mean_probs * torch.log(mean_probs + 1e-8), dim=1, keepdim=True)
+        # Move back to GPU for final computation
+        preds = torch.stack([p.to(x.device) for p in cpu_preds], dim=0)
+        
+        p_mean = preds.mean(0)
+        
+        # Compute uncertainties
+        entropy = -(p_mean * p_mean.clamp_min(1e-8).log()).sum(1, keepdim=True)
+        exp_entropy = -(preds * preds.clamp_min(1e-8).log()).sum(2).mean(0, keepdim=True)
+        mutual_info = entropy - exp_entropy
+        
+        # Clean up
+        del preds, cpu_preds
+        torch.cuda.empty_cache()
         
         return {
-            'prediction': mean_prediction,
-            'uncertainty': entropy,
-            'variance': variance.mean(dim=1, keepdim=True),
-            'samples': predictions
+            "prob": p_mean,
+            "entropy": entropy,
+            "mutual_info": mutual_info
         }
 
-# Test the uncertainty model
+    def _enable_dropout_only(self, m):
+        """Enable only dropout layers during MC inference"""
+        if isinstance(m, (nn.Dropout, nn.Dropout3d)):
+            m.train()
+
+    def get_model_size(self):
+        """Get model size in MB"""
+        param_size = 0
+        buffer_size = 0
+        for param in self.parameters():
+            param_size += param.nelement() * param.element_size()
+        for buffer in self.buffers():
+            buffer_size += buffer.nelement() * buffer.element_size()
+        size_mb = (param_size + buffer_size) / 1024**2
+        return size_mb
+
+# Test memory usage
 if __name__ == "__main__":
-    print("🎯 Testing Uncertainty UNet")
-    print("=" * 30)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # Check device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Device: {device}")
+    # Test with different configurations
+    configs = [
+        {"base_channels": 8, "name": "Tiny"},
+        {"base_channels": 16, "name": "Small"},
+        {"base_channels": 32, "name": "Medium"},
+    ]
     
-    # Create model
-    model = UncertaintyUNet3D(in_channels=4, n_classes=4, base_channels=16, dropout_rate=0.3)
-    model = model.to(device)
-    
-    # Test input
-    batch_size = 1
-    input_tensor = torch.randn(batch_size, 4, 32, 32, 32).to(device)
-    
-    print(f"Input shape: {input_tensor.shape}")
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
-    # Test standard forward
-    model.eval()
-    with torch.no_grad():
-        output = model(input_tensor)
-    print(f"Standard output shape: {output.shape}")
-    
-    # Test Monte Carlo forward
-    print("\n🎲 Testing Monte Carlo sampling...")
-    uncertainty_output = model.monte_carlo_forward(input_tensor, n_samples=5)
-    
-    print(f"Prediction shape: {uncertainty_output['prediction'].shape}")
-    print(f"Uncertainty shape: {uncertainty_output['uncertainty'].shape}")
-    print(f"Samples shape: {uncertainty_output['samples'].shape}")
-    
-    # Uncertainty statistics
-    uncertainty = uncertainty_output['uncertainty']
-    print(f"\nUncertainty stats:")
-    print(f"  Mean: {uncertainty.mean():.4f}")
-    print(f"  Min: {uncertainty.min():.4f}")
-    print(f"  Max: {uncertainty.max():.4f}")
-    
-    print("\n✅ Uncertainty UNet test completed!")
+    for config in configs:
+        model = UncertaintyUNet3D(
+            in_channels=4,
+            n_classes=4,
+            base_channels=config["base_channels"],
+            use_checkpointing=True
+        ).to(device)
+        
+        size_mb = model.get_model_size()
+        print(f"{config['name']} model: {size_mb:.2f} MB")
+        
+        # Test forward pass
+        try:
+            x = torch.randn(1, 4, 64, 64, 64).to(device)
+            with torch.cuda.amp.autocast():
+                out = model(x)
+            print(f"  Forward pass successful: {out.shape}")
+            
+            # Test MC inference
+            mc_out = model.monte_carlo_forward(x, n_samples=5)
+            print(f"  MC inference successful: {mc_out['prob'].shape}")
+            
+        except RuntimeError as e:
+            print(f"  Failed: {e}")
+        
+        del model
+        torch.cuda.empty_cache()
+        print()
