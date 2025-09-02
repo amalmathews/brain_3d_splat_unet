@@ -8,7 +8,7 @@ import os
 import random
 
 class BraTSDataset(Dataset):
-    def __init__(self, data_dir, max_cases=None, patch_size=(96, 96, 96)):
+    def __init__(self, data_dir, max_cases=None, patch_size=(128, 128, 128)):
         self.data_dir = data_dir
         self.patch_size = patch_size
         self.cases = []
@@ -30,7 +30,7 @@ class BraTSDataset(Dataset):
     def __getitem__(self, idx):
         case_dir = self.cases[idx]
         case = case_dir.name
-        
+
         vols = [
             self._load_nifti(case_dir / f"{case}_t1.nii.gz"),
             self._load_nifti(case_dir / f"{case}_t1ce.nii.gz"),
@@ -38,17 +38,40 @@ class BraTSDataset(Dataset):
             self._load_nifti(case_dir / f"{case}_flair.nii.gz"),
         ]
         seg = self._load_nifti(case_dir / f"{case}_seg.nii.gz", is_label=True)
-        
+
         image = np.stack(vols, axis=0).astype(np.float32)  # (4, D, H, W)
         
         # Random crop
-        image, seg = self._random_crop_3d(image, seg, self.patch_size)
-        
+        image, seg = self._random_crop(image, seg, self.patch_size)
+
         return {
             "image": torch.from_numpy(image),
             "mask": torch.from_numpy(seg).long(),
             "case_id": case
         }
+    
+    def _random_crop(self, image, seg, crop_size):
+        d, h, w = image.shape[1:]
+        cd, ch, cw = crop_size
+        
+        if d <= cd or h <= ch or w <= cw:
+            # Center crop if too small
+            start_d = max((d - cd) // 2, 0)
+            start_h = max((h - ch) // 2, 0)
+            start_w = max((w - cw) // 2, 0)
+        else:
+            start_d = random.randint(0, d - cd)
+            start_h = random.randint(0, h - ch)
+            start_w = random.randint(0, w - cw)
+        
+        end_d = min(start_d + cd, d)
+        end_h = min(start_h + ch, h)
+        end_w = min(start_w + cw, w)
+        
+        image_crop = image[:, start_d:end_d, start_h:end_h, start_w:end_w]
+        seg_crop = seg[start_d:end_d, start_h:end_h, start_w:end_w]
+        
+        return image_crop, seg_crop
     
     def _load_nifti(self, path, is_label=False):
         img = nib.load(str(path))
@@ -68,26 +91,3 @@ class BraTSDataset(Dataset):
             mu, sigma = nz.mean(), nz.std() + 1e-6
             data = (data - mu) / sigma
         return data
-    
-    def _random_crop_3d(self, img, mask, crop_size):
-        d, h, w = img.shape[1:]  # img shape = (C, D, H, W)
-        cd, ch, cw = crop_size
-        
-        # If volume is smaller than crop, use center crop
-        if d <= cd or h <= ch or w <= cw:
-            start_d = max((d - cd) // 2, 0)
-            start_h = max((h - ch) // 2, 0)
-            start_w = max((w - cw) // 2, 0)
-        else:
-            start_d = random.randint(0, d - cd)
-            start_h = random.randint(0, h - ch)
-            start_w = random.randint(0, w - cw)
-        
-        end_d = min(start_d + cd, d)
-        end_h = min(start_h + ch, h)
-        end_w = min(start_w + cw, w)
-        
-        img_crop = img[:, start_d:end_d, start_h:end_h, start_w:end_w]
-        mask_crop = mask[start_d:end_d, start_h:end_h, start_w:end_w]
-        
-        return img_crop, mask_crop

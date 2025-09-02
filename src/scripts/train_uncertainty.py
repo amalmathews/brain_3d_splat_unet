@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
+from monai.transforms import Compose, RandCropByPosNegLabeld, ToTensord
 from tqdm import tqdm
 import numpy as np
 import os
@@ -78,28 +79,61 @@ scaler = torch.cuda.amp.GradScaler() if USE_MIXED_PRECISION else None
 # ---------- Data ----------
 print("Loading data...")
 
+# Define transforms
+train_transforms = Compose([
+    RandCropByPosNegLabeld(
+        keys=["image", "label"],
+        label_key="label",
+        spatial_size=PATCH_SIZE,  # (96, 96, 96)
+        pos=1,  # 1 positive sample (with tumor)
+        neg=1,  # 1 negative sample (without tumor)
+        num_samples=2,  # Total 2 patches per volume
+        image_key="image",
+        image_threshold=0,
+        allow_smaller=True
+    ),
+    ToTensord(keys=["image", "label"])
+])
+
+val_transforms = Compose([
+    RandCropByPosNegLabeld(
+        keys=["image", "label"],
+        label_key="label",
+        spatial_size=PATCH_SIZE,
+        pos=1,
+        neg=0,  # Only positive samples for validation
+        num_samples=1,
+        image_key="image", 
+        image_threshold=0,
+        allow_smaller=True
+    ),
+    ToTensord(keys=["image", "label"])
+])
+
+# Create datasets with transforms
 train_dataset = BraTSDataset(
     data_dir="src/data/BraTS2021/BraTS2021_Training_Data",
-    patch_size=PATCH_SIZE
+    transforms=train_transforms
 )
 
 val_dataset = BraTSDataset(
-    data_dir="src/data/BraTS2021/BraTS2021_Training_Data",
-    patch_size=PATCH_SIZE
+    data_dir="src/data/BraTS2021/BraTS2021_Training_Data", 
+    transforms=val_transforms
 )
 
-# Split dataset (simple approach - use first 80% for train, last 20% for val)
+# Split dataset
 total_cases = len(train_dataset.cases)
 train_cases = int(0.8 * total_cases)
 
 train_dataset.cases = train_dataset.cases[:train_cases]
 val_dataset.cases = val_dataset.cases[train_cases:]
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
 print(f"Training batches: {len(train_loader)}")
 print(f"Validation batches: {len(val_loader)}")
+print("Note: Each training volume generates 2 patches (1 pos + 1 neg)")
 
 # ---------- Training tracking ----------
 train_metrics = defaultdict(list)
