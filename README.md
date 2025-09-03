@@ -54,7 +54,7 @@ scipy>=1.9.0
 ### 1. Download Pre-trained Model
 ```bash
 # Download trained weights (replace with actual link)
-wget https://github.com/yourusername/brain-tumor-uncertainty/releases/download/v1.0/best_model.pth
+wget https://github.com/amalmathews/uncertainty-aware-3d-brain-segmentation/releases/download/v1.0/best_model.pth
 mkdir -p checkpoints
 mv best_model.pth checkpoints/
 ```
@@ -138,7 +138,7 @@ volume_analysis = {
 ## Project Structure
 
 ```
-brain-tumor-uncertainty/
+uncertainty-aware-3d-brain-segmentation/
 ├── src/
 │   ├── models/
 │   │   └── nnunet_uncertainty.py      # MONAI UNet with MC Dropout
