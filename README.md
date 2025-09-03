@@ -25,6 +25,7 @@
 - 16GB+ RAM
 
 ### Setup
+```bash
 
 # Create virtual environment
 python -m venv venv
