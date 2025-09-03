@@ -178,7 +178,6 @@ class SegmentationTo3D:
     
     def create_mesh_from_segmentation(self, segmentation, label=1, smooth=True):
         """Create 3D mesh from segmentation using marching cubes"""
-        # Extract specific label
         binary_mask = (segmentation == label).astype(np.uint8)
         
         if binary_mask.sum() == 0:
@@ -215,7 +214,6 @@ class SegmentationTo3D:
         """Complete pipeline: predict -> point cloud -> 3D visualization"""
         print(f"Processing case: {case_path}")
         
-        # Make prediction
         pred_labels, uncertainty, image_array = self.predict_with_uncertainty(case_path)
         
         if pred_labels is None:
@@ -224,7 +222,6 @@ class SegmentationTo3D:
         print(f"Prediction shape: {pred_labels.shape}")
         print(f"Unique labels: {np.unique(pred_labels)}")
         
-        # Create point cloud
         pcd, uncertainties = self.segmentation_to_pointcloud(pred_labels, uncertainty)
         
         if pcd is None:
@@ -241,11 +238,9 @@ class SegmentationTo3D:
                     meshes.append(mesh)
                     print(f"Created mesh for label {label}")
         
-        # Visualize
         vis_objects = [pcd] + meshes
         
         if save_path:
-            # Save point cloud
             o3d.io.write_point_cloud(f"{save_path}_pointcloud.ply", pcd)
             
             # Save meshes
@@ -264,31 +259,34 @@ class SegmentationTo3D:
         
         return pcd, meshes, uncertainties
 
-# Demo script
 def main():
-    # Initialize converter with your trained model
     converter = SegmentationTo3D(
         model_path="checkpoints/best_model.pth",
         device='cuda'
     )
     
-    # Path to a BraTS case directory
     case_path = "src/data/BraTS2021/BraTS2021_Training_Data/BraTS2021_00000"
     
-    # Create 3D visualization
     results = converter.visualize_3d_results(
         case_path=case_path,
         save_path="outputs/3d_demo"
     )
     
     if results:
-        pcd, meshes, uncertainties = results
+        pcd, meshes, uncertainties, volume_analysis = results
         
-        # Additional analysis
-        print(f"Uncertainty statistics:")
-        print(f"  Mean: {uncertainties.mean():.4f}")
-        print(f"  Std: {uncertainties.std():.4f}")
-        print(f"  Max: {uncertainties.max():.4f}")
+        print(f"\nUNCERTAINTY STATISTICS:")
+        print("-" * 40)
+        print(f"Mean: {uncertainties.mean():.4f}")
+        print(f"Std: {uncertainties.std():.4f}")
+        print(f"Max: {uncertainties.max():.4f}")
+        
+        high_uncertainty_threshold = np.percentile(uncertainties, 90)
+        high_uncertainty_ratio = (uncertainties > high_uncertainty_threshold).mean()
+        print(f"High uncertainty regions (>90th percentile): {high_uncertainty_ratio:.1%}")
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
