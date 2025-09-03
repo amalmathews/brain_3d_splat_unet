@@ -34,3 +34,5 @@ jupyter
 ipykernel
 black
 pytest
+open3d
+scikit-image

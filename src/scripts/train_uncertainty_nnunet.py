@@ -21,15 +21,20 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_path):
     """Load checkpoint and resume training"""
     if checkpoint_path and os.path.exists(checkpoint_path):
         print(f"Loading checkpoint from {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+        # Fix for PyTorch 2.6 weights_only default change
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        
+        # Load model state
         model.load_state_dict(checkpoint['model_state_dict'])
+        
+        # Load optimizer state
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
-
+        # Load scheduler state
         if 'scheduler_state_dict' in checkpoint:
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         
-
+        # Load training metrics
         train_metrics = checkpoint.get('train_metrics', defaultdict(list))
         val_metrics = checkpoint.get('val_metrics', defaultdict(list))
         best_dice = checkpoint.get('best_dice', 0.0)
@@ -52,13 +57,13 @@ GRADIENT_ACCUMULATION_STEPS = 2
 USE_MIXED_PRECISION = True
 
 # Checkpoint configuration
-RESUME_FROM_CHECKPOINT = None  
-# RESUME_FROM_CHECKPOINT = "checkpoints/epoch_10.pth" 
+# RESUME_FROM_CHECKPOINT = None 
+RESUME_FROM_CHECKPOINT = "checkpoints/epoch_20.pth" 
 
 # Validation frequency
 VAL_EVERY = 5
-SAVE_EVERY = 1
-LOG_EVERY = 5
+SAVE_EVERY = 5
+LOG_EVERY = 10
 
 # ---------- Device ----------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -150,7 +155,7 @@ for epoch in range(start_epoch, EPOCHS):
     train_loss = 0
     train_dice_scores = []
     
-    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Train]", leave=False)
+    train_pbar = tqdm(train_loader, desc=f"E{epoch+1}/{EPOCHS}", leave=False, ncols=100)
     
     for batch_idx, batch in enumerate(train_pbar):
         x = batch['image'].to(device, non_blocking=True)
@@ -245,7 +250,7 @@ for epoch in range(start_epoch, EPOCHS):
         val_dice_scores = []
         val_uncertainties = {'epistemic': [], 'aleatoric': [], 'predictive': []}
         
-        val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Val]", leave=False)
+        val_pbar = tqdm(val_loader, desc=f"E{epoch+1} Val", leave=False, ncols=80)
         
         try:
             with torch.no_grad():
