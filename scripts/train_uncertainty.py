@@ -14,9 +14,9 @@ import time
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from src.models.uncertainty_unet import UncertaintyUNet3D
-from src.data.dataset import BraTSDataset
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+from models.uncertainty_unet import UncertaintyUNet3D
+from data.dataset import BraTSDataset
 
 # ---------- Config ----------
 NUM_CLASSES = 4

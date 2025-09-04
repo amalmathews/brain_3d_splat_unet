@@ -75,7 +75,7 @@ data/
 
 ### 3. Run 3D Visualization Demo
 ```bash
-python src/visualization/seg_to_pointcloud.py
+python visualization/seg_to_pointcloud.py
 ```
 
 This generates:
@@ -88,7 +88,7 @@ This generates:
 
 ### Training
 ```bash
-python src/scripts/train_uncertainty.py
+python training/train_uncertainty_nnunet.py
 ```
 
 Configuration options:
@@ -139,7 +139,7 @@ volume_analysis = {
 
 ```
 uncertainty-aware-3d-brain-segmentation/
-├── src/
+├── 
 │   ├── models/
 │   │   └── nnunet_uncertainty.py      # MONAI UNet with MC Dropout
 │   ├── data/

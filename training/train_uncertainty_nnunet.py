@@ -13,15 +13,15 @@ import time
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from src.models.nnunet_uncertainty import nnUNetUncertainty
-from src.data.dataset import BraTSDataset
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+from models.nnunet_uncertainty import nnUNetUncertainty
+from data.dataset import BraTSDataset
 
 def load_checkpoint(model, optimizer, scheduler, checkpoint_path):
     """Load checkpoint and resume training"""
     if checkpoint_path and os.path.exists(checkpoint_path):
         print(f"Loading checkpoint from {checkpoint_path}")
-        # Fix for PyTorch 2.6 weights_only default change
+
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         
         # Load model state
@@ -30,7 +30,6 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_path):
         # Load optimizer state
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
-        # Load scheduler state
         if 'scheduler_state_dict' in checkpoint:
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         
